@@ -76,9 +76,9 @@ def main():
     )
     up_parser.add_argument(
         '--format', '-f',
-        choices=['html', 'json', 'markdown', 'summary'],
+        choices=['html', 'json', 'markdown', 'summary', 'beancount'],
         default='html',
-        help='Output format: html (default), json (with reasoning), markdown, summary (text)'
+        help='Output format: html (default), json (with reasoning), markdown, summary (text), beancount (ledger)'
     )
     up_parser.add_argument(
         '-v', '--verbose',
@@ -155,9 +155,9 @@ def main():
     )
     run_parser.add_argument(
         '--format', '-f',
-        choices=['html', 'json', 'markdown', 'summary'],
+        choices=['html', 'json', 'markdown', 'summary', 'beancount'],
         default='html',
-        help='Output format: html (default), json (with reasoning), markdown, summary (text)'
+        help='Output format: html (default), json (with reasoning), markdown, summary (text), beancount (ledger)'
     )
     run_parser.add_argument(
         '-v', '--verbose',

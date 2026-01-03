@@ -69,7 +69,7 @@ def cmd_run(args):
 
     # Auto-enable quiet mode for machine-readable formats
     output_format = getattr(args, 'format', 'html')
-    if output_format in ('json', 'markdown'):
+    if output_format in ('json', 'markdown', 'beancount'):
         args.quiet = True
 
     if not args.quiet:
@@ -193,6 +193,10 @@ def cmd_run(args):
         # Markdown output with reasoning
         from ..analyzer import export_markdown
         print(export_markdown(stats, verbose=verbose, category_filter=category_filter, currency_format=currency_format))
+    elif output_format == 'beancount':
+        # Beancount ledger output
+        from ..beancount import export_beancount
+        print(export_beancount(stats, config, category_filter=category_filter))
     elif output_format == 'summary' or args.summary:
         # Text summary only (no HTML)
         group_by = getattr(args, 'group_by', 'merchant')

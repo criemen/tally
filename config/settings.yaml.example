@@ -46,3 +46,32 @@ data_sources:
 # Output settings
 output_dir: output
 html_filename: spending_summary.html
+
+# Beancount export settings (for --format beancount)
+# Maps tally categories to beancount accounts
+# beancount:
+#   currency: "USD"                              # Override currency (default: extracted from currency_format)
+#   default_expense_account: "Expenses:FIXME"    # Used when category unknown
+#   default_asset_account: "Assets:FIXME"        # Used when source not mapped
+#
+#   # Map data sources to asset/liability accounts
+#   source_accounts:
+#     AMEX: "Liabilities:CreditCard:Amex"
+#     Chase: "Liabilities:CreditCard:Chase"
+#     Checking: "Assets:Bank:Checking"
+#
+#   # Map categories to expense accounts
+#   account_mappings:
+#     # Simple category -> account mapping
+#     Subscriptions: "Expenses:Subscriptions"
+#
+#     # Category with subcategory mappings
+#     Food:
+#       Grocery: "Expenses:Food:Groceries"
+#       Restaurant: "Expenses:Food:DiningOut"
+#       _default: "Expenses:Food:Other"
+#
+#     # Special accounts for tagged transactions
+#     _income: "Income:Salary"
+#     _transfer: "Assets:Transfer"
+#     _investment: "Assets:Investments:Retirement"
