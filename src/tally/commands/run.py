@@ -78,7 +78,7 @@ def cmd_run(args):
 
     # Auto-enable quiet mode for machine-readable formats
     output_format = getattr(args, 'format', 'html')
-    if output_format in ('json', 'csv', 'markdown'):
+    if output_format in ('json', 'csv', 'markdown', 'beancount'):
         args.quiet = True
 
     if not args.quiet:
@@ -278,6 +278,17 @@ def cmd_run(args):
             if not only_filter:
                 only_filter = None
     category_filter = args.category if hasattr(args, 'category') and args.category else None
+
+    beancount_period = getattr(args, 'beancount_period', None)
+    beancount_output = getattr(args, 'beancount_output', None)
+    if output_format != 'beancount':
+        if beancount_period:
+            print("Warning: --beancount-period is only applied with --format beancount.", file=sys.stderr)
+        if beancount_output:
+            print("Warning: --beancount-output is only applied with --format beancount.", file=sys.stderr)
+        beancount_period = None
+        beancount_output = None
+
     currency_format = config.get('currency_format', '${amount}')
 
     if output_format == 'json':
@@ -290,6 +301,21 @@ def cmd_run(args):
         # Markdown output with reasoning
         from ..analyzer import export_markdown
         print(export_markdown(stats, verbose=verbose, category_filter=category_filter, currency_format=currency_format))
+    elif output_format == 'beancount':
+        # Beancount ledger output
+        if not beancount_output:
+            print("Error: --beancount-output is required when using --format beancount.", file=sys.stderr)
+            sys.exit(2)
+        from ..beancount import export_beancount_files
+        export_beancount_files(
+            stats,
+            config,
+            output_dir=beancount_output,
+            category_filter=category_filter,
+            period_filter=beancount_period,
+        )
+        if not args.quiet:
+            print(f"Beancount files written to {beancount_output}")
     elif output_format == 'summary' or args.summary:
         # Text summary only (no HTML)
         group_by = getattr(args, 'group_by', 'merchant')
