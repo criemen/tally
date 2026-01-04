@@ -567,10 +567,11 @@ class TestExportBeancount:
     def test_currency_exchange_merged(self):
         """Currency exchange pairs should be merged into single transactions."""
         # Create two transactions representing a currency exchange:
-        # Selling DKK, buying EUR - both transfers to same Revolut account
+        # Selling EUR to buy DKK
+        # In tally: positive = outflow (selling), negative = inflow (buying)
         txns = self._create_transactions([
-            ('Revolut Exchange EUR', -5450.00, 'Transfer', 'Revolut', ['transfer'], date(2025, 12, 12), 'Revolut-DKK'),
             ('Revolut Exchange EUR', 727.62, 'Transfer', 'Revolut', ['transfer'], date(2025, 12, 12), 'Revolut-EUR'),
+            ('Revolut Exchange EUR', -5450.00, 'Transfer', 'Revolut', ['transfer'], date(2025, 12, 12), 'Revolut-DKK'),
         ])
 
         stats = analyze_transactions(txns)
@@ -589,11 +590,12 @@ class TestExportBeancount:
         # Should have only one transaction header for the exchange
         assert output.count('* "Revolut Exchange EUR"') == 1
 
-        # Should use @@ price annotation for the "from" currency
-        assert '-5450.00 DKK @@ 727.62 EUR' in output
+        # Should use @@ price annotation: selling EUR for DKK
+        # In beancount: -727.62 EUR @@ 5450.00 DKK means "sell 727.62 EUR for 5450 DKK"
+        assert '-727.62 EUR @@ 5450.00 DKK' in output
 
-        # Should have the "to" currency posting
-        assert '727.62 EUR' in output
+        # Should have the "to" currency posting (what we received)
+        assert '5450.00 DKK' in output
 
         # Both postings should be to the same account (Assets:Bank:Revolut)
         assert output.count('Assets:Bank:Revolut') == 2

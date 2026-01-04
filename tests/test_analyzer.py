@@ -35,7 +35,7 @@ class TestExportJson:
 
     def test_export_json_with_by_month(self):
         """export_json should handle by_month data correctly.
-        
+
         Regression test: by_month stores floats, not dicts with 'total'/'count'.
         """
         txns = self._create_transactions([
@@ -48,10 +48,10 @@ class TestExportJson:
 
         # This should not raise "TypeError: 'float' object is not subscriptable"
         json_output = export_json(stats)
-        
+
         # Verify it's valid JSON
         parsed = json.loads(json_output)
-        
+
         # Verify by_month structure
         assert 'by_month' in parsed
         assert '2025-01' in parsed['by_month']
@@ -1058,6 +1058,141 @@ class TestAmountSignHandling:
 
             assert txns[0]['is_credit'] == False  # Positive = not credit
             assert txns[1]['is_credit'] == True   # Negative = credit
+        finally:
+            os.unlink(f.name)
+
+    def test_fee_column_added_to_amount(self):
+        """Fee column is parsed and added to amount."""
+        csv_content = """Date,Description,Amount,Fee
+01/15/2025,TRANSACTION,0.00,25.00
+01/16/2025,ANOTHER TXN,100.00,5.00
+01/17/2025,NO FEE,50.00,0.00
+"""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            f.write(csv_content)
+            f.close()
+
+            rules = get_all_rules()
+            format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {fee}')
+
+            from tally.analyzer import parse_generic_csv
+            txns = parse_generic_csv(f.name, format_spec, rules)
+
+            assert len(txns) == 3
+            assert txns[0]['amount'] == 25.00   # 0.00 + 25.00 fee
+            assert txns[1]['amount'] == 105.00  # 100.00 + 5.00 fee
+            assert txns[2]['amount'] == 50.00   # 50.00 + 0.00 fee
+        finally:
+            os.unlink(f.name)
+
+    def test_fee_column_with_negated_amount(self):
+        """Fee works with {-amount} format."""
+        csv_content = """Date,Description,Amount,Fee
+01/15/2025,CHARGE,-50.00,5.00
+01/16/2025,REFUND,25.00,0.00
+"""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            f.write(csv_content)
+            f.close()
+
+            rules = get_all_rules()
+            format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {-amount}, {fee}')
+
+            from tally.analyzer import parse_generic_csv
+            txns = parse_generic_csv(f.name, format_spec, rules)
+
+            assert len(txns) == 2
+            # Amount is negated first, then fee added
+            assert txns[0]['amount'] == 55.00   # -(-50.00) + 5.00 = 55.00
+            assert txns[1]['amount'] == -25.00  # -(25.00) + 0.00 = -25.00
+        finally:
+            os.unlink(f.name)
+
+    def test_negated_fee_column(self):
+        """Using {-fee} negates the fee before adding."""
+        csv_content = """Date,Description,Amount,Fee
+01/15/2025,TRANSACTION,100.00,10.00
+01/16/2025,ANOTHER,50.00,-5.00
+"""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            f.write(csv_content)
+            f.close()
+
+            rules = get_all_rules()
+            format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {-fee}')
+
+            from tally.analyzer import parse_generic_csv
+            txns = parse_generic_csv(f.name, format_spec, rules)
+
+            assert len(txns) == 2
+            assert txns[0]['amount'] == 90.00   # 100.00 + (-10.00) = 90.00
+            assert txns[1]['amount'] == 55.00   # 50.00 + (-(-5.00)) = 55.00
+        finally:
+            os.unlink(f.name)
+
+    def test_abs_fee_column(self):
+        """Using {+fee} takes absolute value of fee before adding."""
+        csv_content = """Date,Description,Amount,Fee
+01/15/2025,TRANSACTION,100.00,-10.00
+01/16/2025,ANOTHER,50.00,5.00
+"""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            f.write(csv_content)
+            f.close()
+
+            rules = get_all_rules()
+            format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {+fee}')
+
+            from tally.analyzer import parse_generic_csv
+            txns = parse_generic_csv(f.name, format_spec, rules)
+
+            assert len(txns) == 2
+            assert txns[0]['amount'] == 110.00  # 100.00 + abs(-10.00) = 110.00
+            assert txns[1]['amount'] == 55.00   # 50.00 + abs(5.00) = 55.00
+        finally:
+            os.unlink(f.name)
+
+    def test_fee_format_spec_flags(self):
+        """Parse {fee}, {-fee}, {+fee} sets correct flags in FormatSpec."""
+        format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {fee}')
+        assert format_spec.fee_column == 3
+        assert format_spec.abs_fee == False
+        assert format_spec.negate_fee == False
+
+        format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {-fee}')
+        assert format_spec.fee_column == 3
+        assert format_spec.abs_fee == False
+        assert format_spec.negate_fee == True
+
+        format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {+fee}')
+        assert format_spec.fee_column == 3
+        assert format_spec.abs_fee == True
+        assert format_spec.negate_fee == False
+
+    def test_fee_with_empty_string(self):
+        """Empty fee string is handled gracefully."""
+        csv_content = """Date,Description,Amount,Fee
+01/15/2025,TRANSACTION,100.00,
+01/16/2025,ANOTHER,50.00,5.00
+"""
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        try:
+            f.write(csv_content)
+            f.close()
+
+            rules = get_all_rules()
+            format_spec = parse_format_string('{date:%m/%d/%Y}, {description}, {amount}, {fee}')
+
+            from tally.analyzer import parse_generic_csv
+            txns = parse_generic_csv(f.name, format_spec, rules)
+
+            assert len(txns) == 2
+            assert txns[0]['amount'] == 100.00  # Empty fee = no change
+            assert txns[1]['amount'] == 55.00   # 50.00 + 5.00 = 55.00
         finally:
             os.unlink(f.name)
 
