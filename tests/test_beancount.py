@@ -1,11 +1,13 @@
 """Tests for beancount export module."""
 
 import pytest
+import tempfile
+from pathlib import Path
 from datetime import date
 
 from tally.beancount import (
     extract_currency_code,
-    export_beancount,
+    export_beancount_files,
     _sanitize_account_name,
     _get_expense_account,
     _get_asset_account,
@@ -183,6 +185,51 @@ class TestExportBeancount:
             })
         return transactions
 
+    def _export_for_month(
+        self,
+        stats,
+        config,
+        year,
+        month,
+        category_filter=None,
+        period_filter=None,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            export_beancount_files(
+                stats,
+                config,
+                output_dir=tmp_dir,
+                category_filter=category_filter,
+                period_filter=period_filter,
+            )
+            base = Path(tmp_dir)
+            final_path = base / year / f"{month}.bean"
+            manual_path = base / year / f"{month}-manual.bean"
+            final_content = final_path.read_text() if final_path.exists() else ''
+            manual_content = manual_path.read_text() if manual_path.exists() else ''
+            return final_content, manual_content
+
+    def _export_all_files(
+        self,
+        stats,
+        config,
+        category_filter=None,
+        period_filter=None,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            export_beancount_files(
+                stats,
+                config,
+                output_dir=tmp_dir,
+                category_filter=category_filter,
+                period_filter=period_filter,
+            )
+            base = Path(tmp_dir)
+            return {
+                str(path.relative_to(base)): path.read_text()
+                for path in base.rglob('*.bean')
+            }
+
     def test_basic_export(self):
         """Export simple transactions to beancount format."""
         txns = self._create_transactions([
@@ -193,7 +240,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {'currency_format': '${amount}'}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Verify transaction format
         assert '2025-01-15 * "Netflix"' in output
@@ -218,7 +265,7 @@ class TestExportBeancount:
             }
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert '5.00 EUR' in output
 
@@ -237,7 +284,7 @@ class TestExportBeancount:
             }
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert 'Liabilities:CreditCard:Amex' in output
 
@@ -256,7 +303,7 @@ class TestExportBeancount:
             }
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert 'Expenses:Monthly:Subscriptions' in output
 
@@ -270,7 +317,13 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config, category_filter='Subscriptions')
+        output, _ = self._export_for_month(
+            stats,
+            config,
+            '2025',
+            '01',
+            category_filter='Subscriptions',
+        )
 
         assert 'Netflix' in output
         assert 'Grocery' not in output
@@ -285,7 +338,8 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config, period_filter='2025')
+        outputs = self._export_all_files(stats, config, period_filter='2025')
+        output = '\n'.join(outputs.values())
 
         assert '2025-01-01' in output
         assert '2024-12-31' not in output
@@ -300,7 +354,8 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config, period_filter='2025-11')
+        outputs = self._export_all_files(stats, config, period_filter='2025-11')
+        output = '\n'.join(outputs.values())
 
         assert '2025-11-05' in output
         assert '2025-12-05' not in output
@@ -314,8 +369,44 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        with pytest.raises(ValueError):
-            export_beancount(stats, config, period_filter='2025-13')
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with pytest.raises(ValueError):
+                export_beancount_files(stats, config, output_dir=tmp_dir, period_filter='2025-13')
+
+    def test_beancount_file_output_overwrite_and_append(self, tmp_path):
+        """Beancount file output overwrites final files and appends manual files."""
+        txns_first = self._create_transactions([
+            ('Final One', 10.00, 'Test', 'Test', [], date(2025, 1, 2), 'Bank'),
+            ('Manual One', 11.00, 'Test', 'Test', ['incomplete'], date(2025, 1, 3), 'Bank'),
+        ])
+
+        stats_first = analyze_transactions(txns_first)
+        config = {}
+        export_beancount_files(stats_first, config, output_dir=str(tmp_path))
+
+        final_path = tmp_path / '2025' / '01.bean'
+        manual_path = tmp_path / '2025' / '01-manual.bean'
+
+        assert final_path.exists()
+        assert manual_path.exists()
+        assert 'Final One' in final_path.read_text()
+        assert 'Manual One' in manual_path.read_text()
+
+        txns_second = self._create_transactions([
+            ('Final Two', 20.00, 'Test', 'Test', [], date(2025, 1, 4), 'Bank'),
+            ('Manual Two', 21.00, 'Test', 'Test', ['incomplete'], date(2025, 1, 5), 'Bank'),
+        ])
+
+        stats_second = analyze_transactions(txns_second)
+        export_beancount_files(stats_second, config, output_dir=str(tmp_path))
+
+        final_contents = final_path.read_text()
+        manual_contents = manual_path.read_text()
+
+        assert 'Final Two' in final_contents
+        assert 'Final One' not in final_contents
+        assert 'Manual One' in manual_contents
+        assert 'Manual Two' in manual_contents
 
     def test_transactions_sorted_by_date(self):
         """Transactions should be sorted by date."""
@@ -328,7 +419,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Find positions of each transaction
         earlier_pos = output.find('Earlier')
@@ -346,7 +437,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Should auto-generate Income:Income:Salary from category/subcategory
         assert 'Income:Income:Salary' in output
@@ -364,7 +455,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert 'Income:Income:Salary' in output
         assert 'Income:Income:Interest' in output
@@ -385,7 +476,7 @@ class TestExportBeancount:
             }
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert 'Income:Job:MainEmployer' in output
 
@@ -398,7 +489,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Should escape the double quote
         assert '\\"Best\\"' in output
@@ -414,7 +505,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Backslashes should be escaped as \\
         assert 'Lebara Denmark ApS\\\\Bomhusvej 13\\\\Koebenhavn' in output
@@ -428,7 +519,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {'currency_format': '£{amount}'}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         assert '10.00 GBP' in output
 
@@ -443,7 +534,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Netflix and Coffee Shop should be in output
         assert 'Netflix' in output
@@ -463,7 +554,7 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Only the first one should be included
         assert 'Should Include' in output
@@ -472,7 +563,7 @@ class TestExportBeancount:
         assert 'Skip Mixed' not in output
 
     def test_incomplete_tag_uses_pending_flag(self):
-        """Transactions with 'incomplete' tag should use ! flag instead of *."""
+        """Incomplete transactions should use ! flag in the manual file."""
         txns = self._create_transactions([
             ('Netflix', 15.99, 'Subscriptions', 'Streaming', [], date(2025, 1, 15), 'Bank'),
             ('Unknown Charge', 50.00, 'Uncategorized', 'Other', ['incomplete'], date(2025, 1, 16), 'Bank'),
@@ -482,16 +573,17 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, manual_output = self._export_for_month(stats, config, '2025', '01')
 
-        # Netflix and Coffee Shop should use * flag
+        # Netflix and Coffee Shop should use * flag in finalized file
         assert '2025-01-15 * "Netflix"' in output
         assert '2025-01-17 * "Coffee Shop"' in output
-        # Unknown Charge with incomplete tag should use ! flag
-        assert '2025-01-16 ! "Unknown Charge"' in output
+        # Unknown Charge with incomplete tag should use ! flag in manual file
+        assert '2025-01-16 ! "Unknown Charge"' in manual_output
+        assert 'Unknown Charge' not in output
 
     def test_incomplete_tag_case_insensitive(self):
-        """Incomplete tag should work regardless of case."""
+        """Incomplete tag should work regardless of case in the manual file."""
         txns = self._create_transactions([
             ('Lower', 10.00, 'Test', 'Test', ['incomplete'], date(2025, 1, 15), 'Bank'),
             ('Upper', 20.00, 'Test', 'Test', ['INCOMPLETE'], date(2025, 1, 16), 'Bank'),
@@ -501,15 +593,16 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, manual_output = self._export_for_month(stats, config, '2025', '01')
 
-        # All should use ! flag
-        assert '2025-01-15 ! "Lower"' in output
-        assert '2025-01-16 ! "Upper"' in output
-        assert '2025-01-17 ! "Mixed"' in output
+        assert output == ''
+        # All should use ! flag in manual file
+        assert '2025-01-15 ! "Lower"' in manual_output
+        assert '2025-01-16 ! "Upper"' in manual_output
+        assert '2025-01-17 ! "Mixed"' in manual_output
 
     def test_incomplete_transactions_sorted_to_bottom(self):
-        """Incomplete transactions should be sorted to the bottom of the file."""
+        """Incomplete transactions should live in manual file, sorted by date."""
         txns = self._create_transactions([
             ('Early Normal', 10.00, 'Test', 'Test', [], date(2025, 1, 10), 'Bank'),
             ('Early Incomplete', 20.00, 'Test', 'Test', ['incomplete'], date(2025, 1, 11), 'Bank'),
@@ -520,32 +613,23 @@ class TestExportBeancount:
         stats = analyze_transactions(txns)
         config = {}
 
-        output = export_beancount(stats, config)
+        output, manual_output = self._export_for_month(stats, config, '2025', '01')
 
-        # Find positions of each transaction
-        early_normal_pos = output.find('* "Early Normal"')
-        late_normal_pos = output.find('* "Late Normal"')
-        early_incomplete_pos = output.find('! "Early Incomplete"')
-        late_incomplete_pos = output.find('! "Late Incomplete"')
+        # Finalized file should only contain normal transactions
+        assert '* "Early Normal"' in output
+        assert '* "Late Normal"' in output
+        assert 'Early Incomplete' not in output
+        assert 'Late Incomplete' not in output
 
-        # All positions should be found
-        assert early_normal_pos >= 0
-        assert late_normal_pos >= 0
+        # Manual file should contain only incomplete transactions
+        early_incomplete_pos = manual_output.find('! "Early Incomplete"')
+        late_incomplete_pos = manual_output.find('! "Late Incomplete"')
         assert early_incomplete_pos >= 0
         assert late_incomplete_pos >= 0
-
-        # Normal transactions should come before incomplete ones
-        assert early_normal_pos < early_incomplete_pos
-        assert early_normal_pos < late_incomplete_pos
-        assert late_normal_pos < early_incomplete_pos
-        assert late_normal_pos < late_incomplete_pos
-
-        # Within each group, transactions should be sorted by date
-        assert early_normal_pos < late_normal_pos
         assert early_incomplete_pos < late_incomplete_pos
 
     def test_incomplete_after_currency_exchange(self):
-        """Incomplete transactions should come after currency exchange transactions."""
+        """Exchanges should come after normal entries; incomplete entries go to manual file."""
         txns = self._create_transactions([
             ('Normal Transaction', 10.00, 'Test', 'Test', [], date(2025, 1, 10), 'Bank'),
             # Currency exchange pair
@@ -565,21 +649,19 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, manual_output = self._export_for_month(stats, config, '2025', '01')
 
         # Find positions
         normal_pos = output.find('* "Normal Transaction"')
         exchange_pos = output.find('* "Revolut Exchange"')
-        incomplete_pos = output.find('! "Incomplete Transaction"')
 
         # All should be found
         assert normal_pos >= 0, "Normal transaction not found"
         assert exchange_pos >= 0, "Exchange transaction not found"
-        assert incomplete_pos >= 0, "Incomplete transaction not found"
 
-        # Order should be: normal < exchange < incomplete
+        # Order should be: normal < exchange
         assert normal_pos < exchange_pos, "Normal should come before exchange"
-        assert exchange_pos < incomplete_pos, "Exchange should come before incomplete"
+        assert '! "Incomplete Transaction"' in manual_output
 
     def test_source_currency_from_data_sources(self):
         """Transactions should use currency from data_sources config."""
@@ -599,7 +681,7 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '01')
 
         # Netflix from AMEX should use default DKK
         assert '15.99 DKK' in output
@@ -627,7 +709,7 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '12')
 
         # Should have only one transaction header for the exchange
         assert output.count('* "Revolut Exchange EUR"') == 1
@@ -660,7 +742,7 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '12')
 
         # Should have two separate transactions
         assert output.count('* "Revolut Exchange"') == 2
@@ -683,7 +765,7 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '12')
 
         # Should have two separate transactions
         assert 'Revolut EUR' in output
@@ -703,7 +785,7 @@ class TestExportBeancount:
             },
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '12')
 
         # Should have two separate transactions (same currency, not an exchange)
         assert output.count('* "Revolut Transfer"') == 2
@@ -726,7 +808,7 @@ class TestExportBeancount:
             ],
         }
 
-        output = export_beancount(stats, config)
+        output, _ = self._export_for_month(stats, config, '2025', '12')
 
         # Should have two separate transactions (not tagged as transfer)
         assert output.count('* "Merchant"') == 2

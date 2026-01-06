@@ -49,6 +49,7 @@ html_filename: spending_summary.html
 
 # Beancount export settings (for --format beancount)
 # Maps tally categories to beancount accounts
+# CLI note: --format beancount now requires --beancount-output <folder>, and writes YYYY/MM.bean + MM-manual.bean.
 # beancount:
 #   currency: "USD"                              # Override currency (default: extracted from currency_format)
 #   default_expense_account: "Expenses:FIXME"    # Used when category unknown

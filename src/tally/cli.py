@@ -94,6 +94,10 @@ def main():
         help='Filter beancount output to a specific year or month (YYYY or YYYY-MM)'
     )
     up_parser.add_argument(
+        '--beancount-output',
+        help='Output folder for beancount files (required with --format beancount)'
+    )
+    up_parser.add_argument(
         '-v', '--verbose',
         action='count',
         default=0,
@@ -176,6 +180,10 @@ def main():
         '--beancount-period',
         type=_parse_beancount_period_arg,
         help='Filter beancount output to a specific year or month (YYYY or YYYY-MM)'
+    )
+    run_parser.add_argument(
+        '--beancount-output',
+        help='Output folder for beancount files (required with --format beancount)'
     )
     run_parser.add_argument(
         '-v', '--verbose',
