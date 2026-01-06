@@ -17,6 +17,14 @@ from ._version import (
 )
 
 
+def _parse_beancount_period_arg(value: str) -> str:
+    from .beancount import normalize_beancount_period
+    try:
+        return normalize_beancount_period(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def main():
     """Main entry point for tally CLI."""
     parser = argparse.ArgumentParser(
@@ -79,6 +87,11 @@ def main():
         choices=['html', 'json', 'markdown', 'summary', 'beancount'],
         default='html',
         help='Output format: html (default), json (with reasoning), markdown, summary (text), beancount (ledger)'
+    )
+    up_parser.add_argument(
+        '--beancount-period',
+        type=_parse_beancount_period_arg,
+        help='Filter beancount output to a specific year or month (YYYY or YYYY-MM)'
     )
     up_parser.add_argument(
         '-v', '--verbose',
@@ -158,6 +171,11 @@ def main():
         choices=['html', 'json', 'markdown', 'summary', 'beancount'],
         default='html',
         help='Output format: html (default), json (with reasoning), markdown, summary (text), beancount (ledger)'
+    )
+    run_parser.add_argument(
+        '--beancount-period',
+        type=_parse_beancount_period_arg,
+        help='Filter beancount output to a specific year or month (YYYY or YYYY-MM)'
     )
     run_parser.add_argument(
         '-v', '--verbose',

@@ -4,6 +4,7 @@ Beancount Export - Generate beancount-compatible ledger entries.
 Exports categorized transactions to beancount plain-text accounting format.
 """
 
+import re
 import subprocess
 import tempfile
 from typing import Dict, List, Optional
@@ -58,6 +59,38 @@ def extract_currency_code(currency_format: str) -> str:
 
     # Default fallback
     return 'USD'
+
+
+def normalize_beancount_period(period: str) -> str:
+    """Normalize a beancount period string.
+
+    Args:
+        period: Period string like "2025" or "2025-11"
+
+    Returns:
+        Normalized period string (YYYY or YYYY-MM)
+    """
+    if period is None:
+        raise ValueError("Beancount period must be YYYY or YYYY-MM.")
+
+    value = period.strip()
+    if not value:
+        raise ValueError("Beancount period must be YYYY or YYYY-MM.")
+
+    match = re.match(r'^(?P<year>\d{4})(?:-(?P<month>\d{1,2}))?$', value)
+    if not match:
+        raise ValueError(f"Invalid beancount period '{period}'. Use YYYY or YYYY-MM.")
+
+    year = int(match.group('year'))
+    month = match.group('month')
+    if month is None:
+        return f"{year:04d}"
+
+    month_num = int(month)
+    if month_num < 1 or month_num > 12:
+        raise ValueError(f"Invalid beancount period '{period}'. Month must be 01-12.")
+
+    return f"{year:04d}-{month_num:02d}"
 
 
 def _sanitize_account_name(name: str) -> str:
@@ -217,6 +250,7 @@ def export_beancount(
     stats: Dict,
     config: Dict,
     category_filter: Optional[str] = None,
+    period_filter: Optional[str] = None,
 ) -> str:
     """Export transactions as beancount ledger entries.
 
@@ -254,6 +288,22 @@ def export_beancount(
         if source_name and source_currency:
             source_currencies[source_name] = source_currency
 
+    # Normalize period filter (YYYY or YYYY-MM)
+    normalized_period = (
+        normalize_beancount_period(period_filter)
+        if period_filter is not None
+        else None
+    )
+
+    def _matches_period(txn_month: str) -> bool:
+        if not normalized_period:
+            return True
+        if not txn_month:
+            return False
+        if len(normalized_period) == 4:
+            return txn_month.startswith(f"{normalized_period}-")
+        return txn_month == normalized_period
+
     # Collect all transactions across merchants
     all_txns = []
     for merchant_name, data in by_merchant.items():
@@ -262,6 +312,8 @@ def export_beancount(
             continue
 
         for txn in data.get('transactions', []):
+            if not _matches_period(txn.get('month', '')):
+                continue
             all_txns.append({
                 **txn,
                 'merchant': merchant_name,

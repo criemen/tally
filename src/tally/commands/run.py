@@ -182,6 +182,10 @@ def cmd_run(args):
             if not only_filter:
                 only_filter = None
     category_filter = args.category if hasattr(args, 'category') and args.category else None
+    beancount_period = getattr(args, 'beancount_period', None)
+    if beancount_period and output_format != 'beancount':
+        print("Warning: --beancount-period is only applied with --format beancount.", file=sys.stderr)
+        beancount_period = None
 
     verbose = args.verbose if hasattr(args, 'verbose') else 0
     currency_format = config.get('currency_format', '${amount}')
@@ -196,7 +200,12 @@ def cmd_run(args):
     elif output_format == 'beancount':
         # Beancount ledger output
         from ..beancount import export_beancount
-        print(export_beancount(stats, config, category_filter=category_filter))
+        print(export_beancount(
+            stats,
+            config,
+            category_filter=category_filter,
+            period_filter=beancount_period,
+        ))
     elif output_format == 'summary' or args.summary:
         # Text summary only (no HTML)
         group_by = getattr(args, 'group_by', 'merchant')

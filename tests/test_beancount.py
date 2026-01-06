@@ -275,6 +275,48 @@ class TestExportBeancount:
         assert 'Netflix' in output
         assert 'Grocery' not in output
 
+    def test_period_filter_year(self):
+        """Export only transactions matching a specific year."""
+        txns = self._create_transactions([
+            ('Old', 10.00, 'Test', 'Test', [], date(2024, 12, 31), 'Bank'),
+            ('New', 20.00, 'Test', 'Test', [], date(2025, 1, 1), 'Bank'),
+        ])
+
+        stats = analyze_transactions(txns)
+        config = {}
+
+        output = export_beancount(stats, config, period_filter='2025')
+
+        assert '2025-01-01' in output
+        assert '2024-12-31' not in output
+
+    def test_period_filter_month(self):
+        """Export only transactions matching a specific month."""
+        txns = self._create_transactions([
+            ('Nov', 10.00, 'Test', 'Test', [], date(2025, 11, 5), 'Bank'),
+            ('Dec', 10.00, 'Test', 'Test', [], date(2025, 12, 5), 'Bank'),
+        ])
+
+        stats = analyze_transactions(txns)
+        config = {}
+
+        output = export_beancount(stats, config, period_filter='2025-11')
+
+        assert '2025-11-05' in output
+        assert '2025-12-05' not in output
+
+    def test_period_filter_invalid(self):
+        """Invalid period filters raise errors."""
+        txns = self._create_transactions([
+            ('Test', 10.00, 'Test', 'Test', [], date(2025, 1, 1), 'Bank'),
+        ])
+
+        stats = analyze_transactions(txns)
+        config = {}
+
+        with pytest.raises(ValueError):
+            export_beancount(stats, config, period_filter='2025-13')
+
     def test_transactions_sorted_by_date(self):
         """Transactions should be sorted by date."""
         txns = self._create_transactions([
